@@ -1,5 +1,6 @@
 streamlit
 pandas
-PyPDF2
-google-generativeai
+requests
 openpyxl
+PyPDF2
+python-docx

@@ -1,130 +1,149 @@
 import streamlit as st
 import pandas as pd
-from PyPDF2 import PdfReader
-import google.generativeai as genai
-import os
+import requests
+import json
+import openpyxl
+import PyPDF2
+import docx
 
-# Configure Google Generative AI
-genai.configure(api_key="AIzaSyAOw3Y-QYSQ1uq8XzcEdxdUS9tOHWcSRZw")
-model = genai.GenerativeModel("gemini-1.5-flash")
+# OpenAI API Key (Replace with your actual key)
+OPENAI_API_KEY = "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"  # Update with your key
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
-# Function to extract text from a PDF file
-def extract_text_from_pdf(pdf_path):
-    try:
-        reader = PdfReader(pdf_path)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text()
-        return text
-    except Exception as e:
-        st.error(f"Error reading PDF: {e}")
-        return ""
+# Function to extract text from a PDF
+def extract_text_from_pdf(pdf_file):
+    text = ""
+    pdf_reader = PyPDF2.PdfReader(pdf_file)
+    for page in pdf_reader.pages:
+        extracted_text = page.extract_text()
+        if extracted_text:
+            text += extracted_text + "\n"
+    return text
 
-# Generate the email content using prompts
-def generate_email(prompt_template, **data):
-    try:
-        # Populate the prompt with data from the Excel row
-        filled_prompt = prompt_template.format(**data)
-        response = model.generate_content(filled_prompt).text.strip()
-        return response
-    except Exception as e:
-        st.error(f"Error generating content: {e}")
-        return None
+# Function to extract text from a DOCX file
+def extract_text_from_docx(docx_file):
+    doc = docx.Document(docx_file)
+    text = "\n".join([para.text for para in doc.paragraphs])
+    return text
 
-# Streamlit App
-st.title("Dynamic Email Generation App")
+# Streamlit UI
+st.title("📧 Automated Research Email Generator")
 
-# Step 1: Ask the User about the Email Purpose
-st.subheader("Step 1: Configure Email Context")
-email_purpose = st.radio(
-    "What is the purpose of this email?",
-    ("Internship Application", "Research Collaboration", "Other")
-)
+# Upload Excel
+uploaded_file = st.file_uploader("📂 Upload Professor Details Excel", type=["xlsx"])
 
-specific_program = st.text_input("If applicable, specify the program or internship (e.g., ThinkSwiss Program).")
+# Upload Resume File
+resume_file = st.file_uploader("📄 Upload Your Resume (PDF/DOCX)", type=["pdf", "docx"])
 
-fine_tuning = st.text_area(
-    "Optional: Add any specific instructions or customizations for the email (e.g., tone, specific points to include).",
-    height=100
-)
+# User Inputs
+your_name = st.text_input("🧑‍🎓 Your Name")
+your_university = st.text_input("🏫 Your University")
+reason = st.text_area("📌 Why are you approaching the professor?")
+resume_link = st.text_input("📎 Google Drive Link of Resume (Optional)")
+sample_email = st.text_area("📄 Paste a Sample Email for Format Reference (Copy-Paste Exact Email Format Here)")
 
-# Step 2: Base Prompt Template
-st.subheader("Step 2: Review and Confirm the Prompt Template")
-base_prompt = """
-Generate a professional email to Prof. {professor_name} at {professor_university}. Begin by introducing yourself as {student_name}, a student from {student_university}. Mention that you are contacting them for {email_purpose}, specifically {specific_program}.
-
-Discuss the professor's research: "{research_topic}" and abstract: "{research_abstract}". Highlight how impressed you are by their work and its relevance, and why it inspired you to reach out.
-
-Summarize your skills and achievements based on your resume: "{resume_text}".
-
-Conclude by expressing your enthusiasm to contribute under their guidance and mentioning that your CV is attached. End with gratitude and your contact information.
-"""
-
-if fine_tuning:
-    base_prompt += "\n\nAdditional Instructions: " + fine_tuning
-
-st.write(base_prompt)
-
-# Step 3: Upload Files
-st.subheader("Step 3: Upload Required Files")
-uploaded_excel = st.file_uploader("Upload Excel File (Template Format)", type=["xlsx"])
-uploaded_resume = st.file_uploader("Upload Resume PDF", type=["pdf"])
-
-# Step 4: Generate Emails
-if st.button("Generate Emails"):
-    if uploaded_excel and uploaded_resume:
-        # Save uploaded resume locally
-        resume_path = "uploaded_resume.pdf"
-        with open(resume_path, "wb") as f:
-            f.write(uploaded_resume.read())
-
-        # Extract text from the uploaded resume
-        resume_text = extract_text_from_pdf(resume_path)
-
-        # Read the uploaded Excel file
-        try:
-            df = pd.read_excel(uploaded_excel)
-        except Exception as e:
-            st.error(f"Error reading Excel file: {e}")
-            st.stop()
-
-        # Process the Excel data and generate emails
-        output_data = []
-        for _, row in df.iterrows():
-            # Prepare data dictionary for prompt
-            data = {
-                "student_name": row["Student Name"],
-                "student_university": row["Student University"],
-                "student_email": row["Student Email"],
-                "professor_name": row["Professor Name"],
-                "professor_university": row["Professor University"],
-                "professor_email": row["Professor Email"],
-                "research_topic": row["Research Topic"],
-                "research_abstract": row["Research Abstract"],
-                "resume_text": resume_text,
-                "email_purpose": email_purpose,
-                "specific_program": specific_program,
-            }
-
-            # Generate email content
-            email_content = generate_email(base_prompt, **data)
-
-            if email_content:
-                output_data.append({
-                    "Student Name": data["student_name"],
-                    "Professor Name": data["professor_name"],
-                    "Email to Send": data["professor_email"],
-                    "Generated Email": email_content,
-                })
-
-        # Save output data to an Excel file
-        if output_data:
-            output_df = pd.DataFrame(output_data)
-            output_excel_path = "generated_emails.xlsx"
-            output_df.to_excel(output_excel_path, index=False)
-            with open(output_excel_path, "rb") as f:
-                st.download_button("Download Generated Emails", f, "generated_emails.xlsx")
-        else:
-            st.error("No emails were generated. Please check your inputs.")
+# Extract Resume Content
+resume_text = ""
+if resume_file:
+    file_extension = resume_file.name.split(".")[-1].lower()
+    if file_extension == "pdf":
+        resume_text = extract_text_from_pdf(resume_file)
+    elif file_extension == "docx":
+        resume_text = extract_text_from_docx(resume_file)
     else:
-        st.error("Please upload all required files.")
+        st.error("Unsupported file format. Please upload a PDF or DOCX file.")
+
+# Generate Emails Button
+if st.button("🚀 Generate Emails") and uploaded_file:
+    df = pd.read_excel(uploaded_file)
+
+    output_data = []
+
+    for _, row in df.iterrows():
+        professor_name = row["Professor Name"]
+        professor_university = row["Professor University"]
+        professor_email = row["Professor Email"]
+        research_topic = row["Research Topic"]
+        research_abstract = row["Research Abstract"]
+
+        # Constructing the prompt with actual values
+        prompt = f"""
+        You are tasked with generating an email for a professor using the **exact structure** of the sample email below.
+        
+        **Replace placeholders with actual details** but do not modify the formatting, structure, or wording of the sample email.
+
+        **Professor Details:**
+        - Professor Name: {professor_name}
+        - University: {professor_university}
+        - Research Topic: {research_topic}
+        - Research Abstract: {research_abstract}
+
+        **My Details:**
+        - Name: {your_name}
+        - University: {your_university}
+        - Reason for reaching out: {reason}
+        - Resume Summary (Extracted from uploaded file):
+          ```
+          {resume_text[:1000]}  # Limiting to first 1000 characters for brevity
+          ```
+        - Resume Link: {resume_link}
+
+        **Use the following email structure exactly as provided (DO NOT change format or style):**
+
+        ```
+        {sample_email}
+        ```
+        """
+
+        # Prepare API request
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENAI_API_KEY}"
+        }
+
+        data = {
+            "model": "gpt-4o-mini",  # Change to "gpt-4o" or "gpt-3.5-turbo" if needed
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "store": True
+        }
+
+        # Make API request
+        response = requests.post(OPENAI_API_URL, headers=headers, json=data)
+
+        if response.status_code == 200:
+            email_body = response.json()["choices"][0]["message"]["content"]
+        else:
+            email_body = f"Error generating email (Status {response.status_code})"
+
+        # Extract subject: Take the first meaningful line
+        lines = email_body.split("\n")
+        subject_line = "Research Collaboration Inquiry"  # Default subject
+        for line in lines:
+            clean_line = line.strip()
+            if clean_line and len(clean_line.split()) > 2:  # Ensure it's a meaningful sentence
+                subject_line = clean_line
+                break
+
+        # Ensure the resume link is clickable
+        if resume_link:
+            resume_button = f"[Click Here]({resume_link}) to view my resume."
+        else:
+            resume_button = "Resume link not provided."
+
+        # Store data (Separate Subject & Body)
+        email_body_cleaned = email_body.replace(subject_line, "").strip()  # Remove subject from body
+        email_body_cleaned += f"\n\n{resume_button}"  # Append the clickable resume link
+        output_data.append([professor_email, subject_line, email_body_cleaned])
+
+    # Convert to DataFrame
+    output_df = pd.DataFrame(output_data, columns=["Professor Email", "Email Subject", "Email Body"])
+
+    # Save to Excel
+    output_file = "Generated_Emails.xlsx"
+    output_df.to_excel(output_file, index=False)
+
+    # Display Download Link
+    st.success("✅ Emails Generated Successfully!")
+    st.download_button("📥 Download Emails Excel", data=open(output_file, "rb"), file_name=output_file)
